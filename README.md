@@ -1,563 +1,840 @@
-# 🔍 Splunk Security Investigation Playbook
+<p align="center">
+  <img src="https://img.shields.io/badge/Splunk-Enterprise%20Security-000000?style=for-the-badge&logo=splunk&logoColor=white" alt="Splunk"/>
+  <img src="https://img.shields.io/badge/Focus-Blue%20Team%20Defense-0066cc?style=for-the-badge&logo=shield&logoColor=white" alt="Blue Team"/>
+  <img src="https://img.shields.io/badge/MITRE-ATT%26CK%20Mapped-red?style=for-the-badge" alt="MITRE"/>
+  <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License"/>
+</p>
 
-![Splunk](https://img.shields.io/badge/Splunk-Enterprise-000000?style=for-the-badge&logo=splunk&logoColor=white)
-![CyberSecurity](https://img.shields.io/badge/Focus-Blue%20Team-blue?style=for-the-badge&logo=security)
-![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
-![Status](https://img.shields.io/badge/Status-Educational-yellow?style=for-the-badge)
+<h1 align="center">🔍 Splunk Security Investigation Playbook</h1>
 
-## Overview
+<p align="center">
+  <strong>Comprehensive SPL queries and detection techniques for SOC analysts and incident responders</strong>
+</p>
 
-A comprehensive collection of **Splunk Search Processing Language (SPL)** queries and investigation techniques for detecting and analyzing web-based intrusion attempts. This playbook documents common attack patterns, detection methodologies, and forensic analysis approaches for security operations centers (SOCs) and incident response teams.
-
-This resource is designed for **defensive security professionals** seeking to improve threat detection capabilities and incident response procedures.
+<p align="center">
+  <a href="#-quick-reference">Quick Reference</a> •
+  <a href="#-investigation-workflow">Workflow</a> •
+  <a href="#-query-library">Queries</a> •
+  <a href="#-automated-alerts">Alerts</a> •
+  <a href="#-troubleshooting">Troubleshooting</a>
+</p>
 
 ---
 
 ## ⚠️ Legal & Professional Disclaimer
 
-**IMPORTANT - READ BEFORE USE:**
-
-This playbook is provided **strictly for educational and authorized defensive security purposes only**. 
-
-### Terms of Use:
-
-- **Authorization Required:** Only use these techniques and queries on systems you own or have explicit written permission to analyze.
-- **Lawful Purpose:** Unauthorized computer system access is illegal. Ensure all investigations comply with local, state, and federal laws.
-- **Professional Standards:** Use in accordance with your organization's security policies, data retention policies, and legal requirements.
-- **Confidentiality:** All examples use redacted IP addresses and anonymized indicators. Never share investigation data containing real client information without authorization.
-- **No Liability:** The author assumes no responsibility for misuse, damage, or legal consequences resulting from the application of this material.
-
-**If you are uncertain about authorization for any investigation, consult with your legal and compliance teams.**
+> **This playbook is for authorized defensive security purposes only.**
+>
+> - Use only on systems you own or have explicit written authorization to analyze
+> - Ensure compliance with local, state, and federal laws
+> - Never share investigation data containing real client information
+> - Consult legal/compliance teams if uncertain about authorization
 
 ---
 
 ## 📋 Table of Contents
 
-- [Quick Start](#quick-start)
-- [Attack Overview](#attack-overview)
-- [Investigation Framework](#investigation-framework)
-- [Query Categories](#query-categories)
-- [Defensive Capabilities](#defensive-capabilities)
-- [Best Practices](#best-practices)
-- [Troubleshooting](#troubleshooting)
-- [Contributing](#contributing)
-- [License](#license)
+<details>
+<summary><strong>Click to expand</strong></summary>
+
+- [Quick Reference](#-quick-reference)
+- [Investigation Workflow](#-investigation-workflow)
+- [Attack Framework](#-attack-framework)
+- [Query Library](#-query-library)
+  - [Initial Triage](#1️⃣-initial-triage)
+  - [Timeline Analysis](#2️⃣-timeline-analysis)
+  - [Traffic Filtering](#3️⃣-traffic-filtering)
+  - [Reconnaissance Detection](#4️⃣-reconnaissance-detection)
+  - [Exploitation Detection](#5️⃣-exploitation-detection)
+  - [Post-Exploitation](#6️⃣-post-exploitation)
+  - [C2 & Exfiltration](#7️⃣-c2--exfiltration)
+- [Automated Alerts](#-automated-alerts)
+- [False Positives Guide](#-false-positives-guide)
+- [Environment Setup](#-environment-setup)
+- [Troubleshooting](#-troubleshooting)
+- [Resources](#-resources)
+
+</details>
 
 ---
 
-## Quick Start
+## 🚀 Quick Reference
 
-### For SOC Analysts & Incident Responders:
+### Essential Queries Cheat Sheet
 
-1. **Identify the target IP:** Obtain the suspected attacker or compromised internal IP from your incident ticket
-2. **Select relevant query category:** Choose from the sections below based on the attack phase
-3. **Customize the query:** Replace `<REDACTED>` placeholders with your investigation parameters
-4. **Execute in Splunk:** Copy the entire query into your Splunk search bar
-5. **Analyze results:** Review the table output for indicators of compromise (IOCs)
+| Purpose | Query |
+|:--------|:------|
+| **Find top attackers** | `sourcetype=web_traffic user_agent!=*Mozilla* \| stats count by client_ip \| sort -count \| head 10` |
+| **SQL injection tools** | `sourcetype=web_traffic user_agent IN ("*sqlmap*", "*Havij*", "*Nikto*")` |
+| **Path traversal** | `sourcetype=web_traffic (path="*..*" OR uri="*../*")` |
+| **Webshell hunting** | `sourcetype=web_traffic path IN ("*shell*", "*cmd*", "*backdoor*") method=POST` |
+| **Config file access** | `sourcetype=web_traffic path IN ("*.env*", "*config*", "*.git*", "*wp-config*")` |
+| **Exfiltration signs** | `sourcetype=firewall_logs action=ALLOWED \| stats sum(bytes_out) as total by src_ip \| where total > 1073741824` |
+| **Brute force login** | `sourcetype=web_traffic uri="*login*" status=401 \| stats count by client_ip \| where count > 50` |
+| **Suspicious uploads** | `sourcetype=web_traffic method=POST path IN ("*.php", "*.asp*", "*.jsp", "*.exe")` |
 
-### Example Investigation Workflow:
+### Field Name Reference
 
-```
-1. Start with "Filtering Out Benign Values" to identify anomalous traffic
-   ↓
-2. Use "Narrowing Down Suspicious IPs" to isolate attacker traffic
-   ↓
-3. Apply "Attack Chain Analysis" queries to trace activity progression
-   ↓
-4. Move to "Exploitation Detection" to confirm attack success
-   ↓
-5. End with "Post-Exploitation Activities" to assess breach scope
-```
+> ⚡ **Tip:** Field names vary by environment. Use `| fieldsummary` to discover your field names.
+
+| Common Names | Alternatives |
+|:-------------|:-------------|
+| `client_ip` | `src_ip`, `clientip`, `c_ip`, `src` |
+| `user_agent` | `useragent`, `user-agent`, `http_user_agent`, `ua` |
+| `path` | `uri`, `uri_path`, `url`, `request`, `cs_uri_stem` |
+| `status` | `status_code`, `http_status`, `sc_status`, `response_code` |
+| `method` | `http_method`, `cs_method`, `request_method` |
+| `bytes_transferred` | `bytes`, `bytes_out`, `sc_bytes`, `response_size` |
 
 ---
 
-## Attack Overview
+## 🔄 Investigation Workflow
 
-This playbook addresses the **Cyber Kill Chain** model across multiple attack phases:
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        INCIDENT RESPONSE WORKFLOW                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐             │
+│   │  ALERT   │───►│  TRIAGE  │───►│ IDENTIFY │───►│  SCOPE   │             │
+│   │ RECEIVED │    │  VERIFY  │    │ ATTACKER │    │  IMPACT  │             │
+│   └──────────┘    └──────────┘    └──────────┘    └──────────┘             │
+│        │              │                │               │                    │
+│        ▼              ▼                ▼               ▼                    │
+│   Section 1      Section 2        Section 3       Sections 4-7             │
+│                                                                             │
+│   ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐             │
+│   │ CONTAIN  │───►│ REMEDIATE│───►│ RECOVER  │───►│  REPORT  │             │
+│   │  THREAT  │    │   ROOT   │    │ SYSTEMS  │    │ LESSONS  │             │
+│   └──────────┘    └──────────┘    └──────────┘    └──────────┘             │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Step-by-Step Process
 
 ```mermaid
-graph TD
-    A["🔴 External Attacker"] -->|Phase 1: Reconnaissance| B["Automated Scanning"]
-    B -->|Phase 2: Weaponization| C["Exploit Selection"]
-    C -->|Phase 3: Delivery| D["Web Request Crafting"]
-    D -->|Phase 4: Exploitation| E["SQL Injection / Path Traversal"]
-    E -->|Phase 5: Installation| F["Webshell Deployment"]
-    F -->|Phase 6: C2| G["Command & Control"]
-    G -->|Phase 7: Actions| H["Data Exfiltration"]
+flowchart TD
+    A[🚨 Alert/Ticket Received] --> B{Initial Triage}
+    B -->|Verify Alert| C[Filter Benign Traffic]
+    C --> D[Identify Top Suspicious IPs]
+    D --> E{Analyze Attack Chain}
     
-    style A fill:#ff9999
-    style E fill:#ffcc00
-    style G fill:#ff6666
-    style H fill:#ff3333
+    E --> F[Reconnaissance<br/>Config files, scanning]
+    E --> G[Exploitation<br/>SQLi, traversal, RCE]
+    E --> H[Post-Exploitation<br/>Webshells, persistence]
+    
+    F --> I[Timeline Correlation]
+    G --> I
+    H --> I
+    
+    I --> J{Confirm Breach?}
+    J -->|Yes| K[Pivot to Firewall Logs]
+    J -->|No| L[Document & Close]
+    
+    K --> M[Calculate Data Exfiltration]
+    M --> N[Generate IOCs]
+    N --> O[Incident Report]
+    
+    style A fill:#ff6b6b
+    style J fill:#ffd93d
+    style K fill:#ff8c42
+    style O fill:#6bcb77
 ```
 
 ---
 
-## Investigation Framework
+## 🎯 Attack Framework
 
-### MITRE ATT&CK Mapping
+### MITRE ATT&CK Coverage
 
-| Attack Phase | MITRE Tactic | Detection Method | Expected Indicators |
-|:---|:---|:---|:---|
-| **Reconnaissance** | Scanning & Enumeration | Non-browser User-Agent Analysis | Uncommon UA strings, Port scans |
-| **Exploitation** | Initial Access, Execution | SQL Injection Tool Detection | SQLmap, Havij user agents |
-| **Installation** | Persistence | Webshell Deployment | PHP/ASP file uploads, Execution attempts |
-| **Command & Control** | Command & Control | Firewall Log Analysis | Outbound connections to suspicious IPs |
-| **Actions** | Exfiltration | Data Transfer Monitoring | Compressed archives, High byte transfers |
+| Phase | Tactic | Techniques Detected | Query Section |
+|:------|:-------|:--------------------|:--------------|
+| **Recon** | Reconnaissance | T1595 Active Scanning | [Section 4](#4️⃣-reconnaissance-detection) |
+| **Initial Access** | Initial Access | T1190 Exploit Public App | [Section 5](#5️⃣-exploitation-detection) |
+| **Execution** | Execution | T1059 Command & Scripting | [Section 6](#6️⃣-post-exploitation) |
+| **Persistence** | Persistence | T1505.003 Web Shell | [Section 6](#6️⃣-post-exploitation) |
+| **Exfiltration** | Exfiltration | T1041 Exfil Over C2 | [Section 7](#7️⃣-c2--exfiltration) |
+| **C2** | Command & Control | T1571 Non-Standard Port | [Section 7](#7️⃣-c2--exfiltration) |
+
+### Cyber Kill Chain Mapping
+
+```
+┌────────────────────────────────────────────────────────────────────────────┐
+│                           CYBER KILL CHAIN                                 │
+├────────────────────────────────────────────────────────────────────────────┤
+│                                                                            │
+│  Phase 1        Phase 2        Phase 3        Phase 4        Phase 5      │
+│  ════════       ════════       ════════       ════════       ════════     │
+│                                                                            │
+│  ┌────────┐    ┌────────┐    ┌────────┐    ┌────────┐    ┌────────┐      │
+│  │ RECON  │───►│WEAPON- │───►│DELIVERY│───►│EXPLOIT │───►│INSTALL │      │
+│  │        │    │IZATION │    │        │    │        │    │        │      │
+│  └────────┘    └────────┘    └────────┘    └────────┘    └────────┘      │
+│       │                           │             │             │           │
+│       ▼                           ▼             ▼             ▼           │
+│   Scanning                    HTTP/S        SQLi/RCE      Webshell       │
+│   Enumeration                 Requests      Traversal     Backdoor       │
+│                                                                            │
+│                                                                            │
+│  Phase 6        Phase 7                                                   │
+│  ════════       ════════                                                  │
+│                                                                            │
+│  ┌────────┐    ┌────────┐                                                 │
+│  │COMMAND │───►│ACTIONS │                                                 │
+│  │CONTROL │    │ON OBJ  │                                                 │
+│  └────────┘    └────────┘                                                 │
+│       │             │                                                      │
+│       ▼             ▼                                                      │
+│   C2 Tunnel     Data Theft                                                │
+│   Beaconing     Ransomware                                                │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## Query Categories
+## 📚 Query Library
 
-### 1️⃣ INITIAL INVESTIGATION
+### 1️⃣ Initial Triage
 
-#### Basic Index Query
-Returns all events from the primary data source.
-
-```spl
-index=main
-```
-
-#### Web Traffic Focus
-Isolates web traffic events for application-layer analysis.
+#### Verify Data Availability
 
 ```spl
-index=main sourcetype=web_traffic
-```
-
-**Use Case:** Initial triage of suspected web application attacks  
-**Expected Output:** Raw event count and timestamp distribution
-
----
-
-### 2️⃣ TIMELINE ANALYSIS
-
-#### Daily Event Count Visualization
-
-Generate a time-series graph showing attack volume progression.
-
-```spl
-index=main sourcetype=web_traffic 
-| timechart span=1d count
-```
-
-**Use Case:** Identify peak attack activity periods  
-**Expected Output:** Time-based chart with daily event counts
-
-#### Peak Activity Identification
-
-Rank days by event volume (highest first).
-
-```spl
-index=main sourcetype=web_traffic 
-| timechart span=1d count 
-| sort by count 
-| reverse
-```
-
-**Use Case:** Determine when the attack was most intense  
-**Expected Output:** Sorted list of dates with highest activity
-
----
-
-### 3️⃣ FILTERING & IDENTIFICATION
-
-#### Remove Legitimate Browser Traffic
-
-Eliminate standard browser user agents to focus on suspicious activity. Legitimate browsers (Mozilla, Chrome, Safari, Firefox) are filtered out.
-
-```spl
-index=main sourcetype=web_traffic 
-user_agent!=*Mozilla* 
-user_agent!=*Chrome* 
-user_agent!=*Safari* 
-user_agent!=*Firefox*
-```
-
-**Rationale:** 
-- Legitimate users generate expected traffic patterns
-- Attackers often use automation tools with non-standard user agents
-- cURL, Wget, Burp Suite, and custom scripts have distinctive signatures
-
-**Expected Results:** 
-- Automated scanner traffic (vulnerability scanning tools)
-- API requests without browser identification
-- Bot activity and exploitation attempts
-
-#### Identify Top Suspicious IPs
-
-Rank client IPs by request volume, filtering non-browser traffic.
-
-```spl
-sourcetype=web_traffic 
-user_agent!=*Mozilla* 
-user_agent!=*Chrome* 
-user_agent!=*Safari* 
-user_agent!=*Firefox* 
-| stats count by client_ip 
-| sort -count 
-| head 5
-```
-
-**Use Case:** Pinpoint the primary attacker IP address  
-**Expected Output:** Top 5 IPs with highest request counts  
-**Action:** Investigate the top result first—this is typically the attacker
-
----
-
-### 4️⃣ ATTACK CHAIN ANALYSIS
-
-#### Reconnaissance Activity Detection
-
-Monitor probes targeting sensitive configuration files and information disclosure endpoints.
-
-```spl
-sourcetype=web_traffic 
-client_ip="<REDACTED>" 
-AND path IN ("/.env", "/*phpinfo*", "/.git*") 
-| table _time, path, user_agent, status
-```
-
-**What These Paths Indicate:**
-- `/.env` – Environment configuration files (API keys, database credentials)
-- `/phpinfo.php` – PHP information disclosure (server version, installed modules)
-- `/.git/config` – Git repository exposure (source code, deployment keys)
-
-**Expected Findings:** Multiple 200/403 responses indicate successful enumeration
-
-#### Path Traversal & Open Redirect Testing
-
-Detect attempts to bypass directory restrictions or exploit open redirects.
-
-```spl
-sourcetype=web_traffic 
-client_ip="<REDACTED>" 
-AND (path="*..*" OR path="*redirect*")
-```
-
-**Exploitation Patterns:**
-- `../../../etc/passwd` – Directory traversal attempts
-- `/page?redirect=http://attacker.com` – Open redirect exploitation
-
-#### Vulnerability Scanning Summary
-
-Aggregate traversal attempts by target path.
-
-```spl
-sourcetype=web_traffic 
-client_ip="<REDACTED>" 
-AND (path="*..\/..\/*" OR path="*redirect*") 
-| stats count by path 
+| tstats count WHERE index=* by index, sourcetype 
 | sort -count
 ```
 
-**Use Case:** Identify which application endpoints are most frequently targeted  
-**Implication:** Most-targeted paths are likely vulnerable or contain sensitive data
+> **Purpose:** Confirm which indices and sourcetypes contain data before starting investigation.
+
+#### Basic Web Traffic Query
+
+```spl
+index=main sourcetype=web_traffic
+| head 100
+| table _time, client_ip, method, path, status, user_agent
+```
+
+#### Event Volume Overview
+
+```spl
+index=main sourcetype=web_traffic
+| stats count as total_events, 
+        dc(client_ip) as unique_ips,
+        dc(path) as unique_paths,
+        earliest(_time) as first_event,
+        latest(_time) as last_event
+| eval first_event=strftime(first_event, "%Y-%m-%d %H:%M:%S")
+| eval last_event=strftime(last_event, "%Y-%m-%d %H:%M:%S")
+```
 
 ---
 
-### 5️⃣ EXPLOITATION DETECTION
+### 2️⃣ Timeline Analysis
 
-#### SQL Injection Attack Identification
-
-Detect automated SQL injection tools by distinctive user agent signatures.
+#### Daily Activity Heatmap
 
 ```spl
-sourcetype=web_traffic 
-client_ip="<REDACTED>" 
-AND user_agent IN ("*sqlmap*", "*Havij*") 
-| table _time, path, status
+index=main sourcetype=web_traffic
+| eval hour=strftime(_time, "%H")
+| eval day=strftime(_time, "%A")
+| stats count by day, hour
+| xyseries day hour count
 ```
 
-**Tool Signatures:**
-- **SQLmap:** Open-source automated SQL injection framework
-- **Havij:** Commercial penetration testing tool for SQL injection
-- Both tools generate uniquely identifiable HTTP headers
+> **Use Case:** Identify attack patterns — automated tools often run at consistent times.
 
-**Confirmation of Exploitation:**
-- HTTP 200 responses to injection payloads = likely successful
-- Large response sizes = data extraction in progress
-- Repeated requests to same parameter = systematic enumeration
+#### Peak Activity Detection
 
-**MITRE:** Technique T1190 (Exploit Public-Facing Application)
+```spl
+index=main sourcetype=web_traffic
+| bin _time span=1h
+| stats count by _time
+| sort -count
+| head 10
+| eval timestamp=strftime(_time, "%Y-%m-%d %H:%M")
+| table timestamp, count
+```
+
+#### Attack Progression Timeline
+
+```spl
+index=main sourcetype=web_traffic client_ip="<ATTACKER_IP>"
+| transaction client_ip maxspan=1h
+| table _time, duration, eventcount, path
+| sort _time
+```
 
 ---
 
-### 6️⃣ POST-EXPLOITATION ACTIVITIES
+### 3️⃣ Traffic Filtering
 
-#### Data Exfiltration Monitoring
-
-Detect attempts to download sensitive data (backups, logs, databases).
+#### Remove Legitimate Browser Traffic
 
 ```spl
-sourcetype=web_traffic 
-client_ip="<REDACTED>" 
-AND path IN ("*backup*", "*logs*", "*.zip", "*.tar*", "*.sql*") 
-| table _time, path, user_agent, status
+index=main sourcetype=web_traffic
+| where NOT match(user_agent, "(?i)(Mozilla|Chrome|Safari|Firefox|Edge|Opera)")
+| stats count by client_ip, user_agent
+| sort -count
 ```
 
-**Exfiltration Indicators:**
-- `backup.zip` – Database or application backups
-- `logs.tar.gz` – Access logs containing sensitive information
-- `*.sql` – Direct database exports
-- Large file downloads over HTTP (should use SFTP/secure protocols)
+> **Rationale:** 
+> - Legitimate users use standard browsers
+> - Attackers often use tools with distinctive user agents (curl, wget, python-requests, sqlmap)
 
-**MITRE:** Technique T1020 (Exfiltration Over Alternative Protocol)
-
-#### Ransomware & Webshell Detection
-
-Identify malicious binary uploads and command execution.
+#### Identify Top Suspicious IPs
 
 ```spl
-sourcetype=web_traffic 
-client_ip="<REDACTED>" 
-AND (path IN ("*.bin", "*.exe", "*.sh") OR path="*shell*" OR path="*cmd=*") 
-| table _time, path, user_agent, status
+index=main sourcetype=web_traffic
+| where NOT match(user_agent, "(?i)(Mozilla|Chrome|Safari|Firefox|Edge)")
+| stats count as requests,
+        dc(path) as unique_paths,
+        values(user_agent) as user_agents
+  by client_ip
+| where requests > 100
+| sort -requests
+| head 10
 ```
 
-**Critical Indicators:**
-- `.bin` or `.exe` file uploads = potential ransomware staging
-- `shell.php`, `cmd.aspx`, `webshell.jsp` = web-accessible backdoors
-- Query parameters like `?cmd=`, `?id=`, `?action=` = command execution
+> **Action:** The IP with highest request count and diverse paths is typically the primary attacker.
 
-**HTTP 200 Response + POST method = File successfully uploaded and potentially executed**
+#### Suspicious User-Agent Analysis
 
-**MITRE:** Technique T1190 (Exploit Public-Facing Application) + T1105 (Ingress Tool Transfer)
+```spl
+index=main sourcetype=web_traffic
+| rex field=user_agent "^(?<tool>[^\s/]+)"
+| stats count, dc(client_ip) as unique_ips by tool
+| where count > 10 AND NOT match(tool, "(?i)(Mozilla|Chrome|Safari)")
+| sort -count
+```
+
+**Known Malicious User-Agents:**
+
+| User-Agent Pattern | Tool Type |
+|:-------------------|:----------|
+| `sqlmap/*` | SQL Injection Scanner |
+| `Nikto/*` | Web Vulnerability Scanner |
+| `Nessus/*` | Vulnerability Scanner |
+| `Havij` | SQL Injection Tool |
+| `DirBuster/*` | Directory Bruteforcer |
+| `Gobuster/*` | Directory/DNS Bruteforcer |
+| `python-requests/*` | Scripted Attacks |
+| `curl/*` | Scripted/Manual Testing |
+| `Wget/*` | Scripted Downloads |
+| `masscan/*` | Port Scanner |
 
 ---
 
-### 7️⃣ COMMAND & CONTROL DETECTION
+### 4️⃣ Reconnaissance Detection
+
+#### Configuration File Probing
+
+```spl
+index=main sourcetype=web_traffic client_ip="<ATTACKER_IP>"
+| where match(path, "(?i)(\.env|\.git|\.svn|\.htaccess|web\.config|\.DS_Store|\.idea|config\.php|wp-config|settings\.py|\.aws|\.ssh)")
+| stats count by path, status
+| sort -count
+```
+
+**Critical Files to Monitor:**
+
+| File/Path | Risk | Data Exposed |
+|:----------|:-----|:-------------|
+| `/.env` | 🔴 Critical | API keys, DB credentials, secrets |
+| `/.git/config` | 🔴 Critical | Repository URLs, deployment keys |
+| `/wp-config.php` | 🔴 Critical | WordPress DB credentials |
+| `/.aws/credentials` | 🔴 Critical | AWS access keys |
+| `/phpinfo.php` | 🟠 High | Server config, PHP version, modules |
+| `/server-status` | 🟠 High | Apache status, active connections |
+| `/.htaccess` | 🟡 Medium | URL rewrite rules, auth config |
+
+#### Directory Enumeration Detection
+
+```spl
+index=main sourcetype=web_traffic client_ip="<ATTACKER_IP>"
+| where status IN (403, 404)
+| stats count by path
+| where count > 5
+| sort -count
+| head 50
+```
+
+> **Indicator:** High volume of 404s to sequential paths indicates directory bruteforcing.
+
+#### Information Disclosure Endpoints
+
+```spl
+index=main sourcetype=web_traffic
+| where match(path, "(?i)(phpinfo|server-status|server-info|debug|trace|actuator|metrics|health|swagger|api-docs)")
+| where status=200
+| stats count by client_ip, path
+| sort -count
+```
+
+---
+
+### 5️⃣ Exploitation Detection
+
+#### SQL Injection Attempts
+
+```spl
+index=main sourcetype=web_traffic client_ip="<ATTACKER_IP>"
+| where match(path, "(?i)(union.*select|select.*from|insert.*into|delete.*from|drop.*table|'.*or.*'|\".*or.*\"|;.*--|%27|%22|%3B)")
+  OR match(user_agent, "(?i)(sqlmap|havij|pangolin)")
+| table _time, path, status, user_agent
+| sort _time
+```
+
+> **Confirmation:**
+> - HTTP 200 responses + SQL tool UA = likely successful injection
+> - Large response sizes = data extraction in progress
+
+#### Path Traversal Detection
+
+```spl
+index=main sourcetype=web_traffic client_ip="<ATTACKER_IP>"
+| where match(path, "(\.\.\/|\.\.\\|%2e%2e%2f|%2e%2e\/|\.\.%2f|%252e)")
+| stats count by path
+| sort -count
+```
+
+**Common Traversal Targets:**
+
+```
+../../../etc/passwd
+../../../etc/shadow
+../../../windows/system32/config/sam
+..\..\..\..\windows\win.ini
+```
+
+#### Command Injection Detection
+
+```spl
+index=main sourcetype=web_traffic client_ip="<ATTACKER_IP>"
+| where match(path, "(?i)(;|\||`|\$\(|%0a|%0d).*?(cat|ls|dir|whoami|id|pwd|wget|curl|nc|bash|sh|cmd|powershell)")
+| table _time, path, status, user_agent
+```
+
+#### XSS Attempt Detection
+
+```spl
+index=main sourcetype=web_traffic
+| where match(path, "(?i)(<script|javascript:|onerror|onload|onclick|%3cscript|%3e)")
+| stats count by client_ip, path
+| sort -count
+```
+
+#### File Upload Exploitation
+
+```spl
+index=main sourcetype=web_traffic method=POST
+| where match(path, "(?i)(upload|file|attach|import)")
+| where match(path, "(?i)\.(php|asp|aspx|jsp|cgi|pl|py|sh|exe|dll|bat|ps1)$")
+  OR status=200
+| table _time, client_ip, path, status, user_agent
+| sort _time
+```
+
+---
+
+### 6️⃣ Post-Exploitation
+
+#### Webshell Detection
+
+```spl
+index=main sourcetype=web_traffic method IN (GET, POST)
+| where match(path, "(?i)(shell|cmd|backdoor|c99|r57|b374k|webadmin|filemanager|phpspy|adminer)")
+  OR match(path, "(?i)\?(cmd|exec|command|c|id|action|act|do)=")
+| stats count by client_ip, path, method, status
+| sort -count
+```
+
+**Known Webshell Indicators:**
+
+| Pattern | Type |
+|:--------|:-----|
+| `c99.php`, `r57.php` | PHP Webshells |
+| `?cmd=`, `?c=` | Command Parameter |
+| `?action=exec` | Execution Parameter |
+| `shell.aspx` | ASP.NET Webshell |
+| `cmd.jsp` | Java Webshell |
+
+#### Malicious File Access
+
+```spl
+index=main sourcetype=web_traffic client_ip="<ATTACKER_IP>"
+| where match(path, "(?i)\.(php|asp|aspx|jsp|cgi)$") AND method=POST
+| stats count by path, status
+| where status=200
+| sort -count
+```
+
+#### Backup & Sensitive File Download
+
+```spl
+index=main sourcetype=web_traffic client_ip="<ATTACKER_IP>"
+| where match(path, "(?i)(backup|dump|export|\.sql|\.zip|\.tar|\.gz|\.rar|\.7z|\.bak|\.old|\.log)")
+| where status=200
+| stats sum(bytes) as total_bytes by path
+| eval size_mb=round(total_bytes/1048576, 2)
+| sort -total_bytes
+```
+
+#### Privilege Escalation Indicators
+
+```spl
+index=main sourcetype=web_traffic client_ip="<ATTACKER_IP>"
+| where match(path, "(?i)(admin|root|superuser|manager|administrator|cpanel|phpmyadmin|wp-admin)")
+| stats count by path, status
+| sort -count
+```
+
+---
+
+### 7️⃣ C2 & Exfiltration
 
 #### Outbound C2 Communication
 
-Pivot to firewall logs to confirm post-exploitation persistence.
-
 ```spl
-sourcetype=firewall_logs 
-src_ip="<INTERNAL_COMPROMISED_IP>" 
-AND dest_ip="<REDACTED>" 
-AND action="ALLOWED" 
-| table _time, action, protocol, src_ip, dest_ip, dest_port, reason
+index=main sourcetype=firewall_logs src_ip="<COMPROMISED_INTERNAL_IP>"
+| where action="ALLOWED" AND NOT match(dest_ip, "^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)")
+| stats count, 
+        sum(bytes_out) as total_bytes,
+        dc(dest_port) as unique_ports,
+        values(dest_port) as ports
+  by dest_ip
+| sort -count
+| head 20
 ```
 
-**Investigation Approach:**
-1. An internal server was compromised via web application vulnerability
-2. Attacker deployed persistent backdoor (webshell/implant)
-3. Firewalls rules unexpectedly allow outbound traffic to attacker infrastructure
-4. Regular encrypted tunnel communication established
+> **Red Flags:**
+> - Outbound HTTPS to non-standard ports (8443, 4443, 9443)
+> - Connections to IP addresses (not domains)
+> - Regular interval beaconing patterns
 
-**Red Flags:**
-- Outbound HTTPS to non-standard ports (8443, 4443, 9443)
-- Established connections during off-business hours
-- Connections to IP addresses in known malicious ranges
-
-**MITRE:** Technique T1571 (Non-Standard Port)
-
-#### Data Exfiltration Volume Calculation
-
-Quantify the breach scope by total bytes transferred.
+#### Beaconing Detection
 
 ```spl
-sourcetype=firewall_logs 
-src_ip="<INTERNAL_COMPROMISED_IP>" 
-AND dest_ip="<REDACTED>" 
-AND action="ALLOWED" 
-| stats sum(bytes_transferred) as total_bytes by src_ip 
-| eval total_gb=round(total_bytes/1024/1024/1024, 2)
+index=main sourcetype=firewall_logs src_ip="<COMPROMISED_IP>" dest_ip="<SUSPICIOUS_IP>"
+| bin _time span=1m
+| stats count by _time
+| eventstats avg(count) as avg_count, stdev(count) as std_dev
+| where abs(count - avg_count) < std_dev
+| stats count as beacon_intervals
 ```
 
-**Output Interpretation:**
-- **< 1 GB:** Limited reconnaissance or partial data theft
-- **1-10 GB:** Significant data exfiltration (databases, file shares)
-- **> 10 GB:** Complete database dumps or entire file system backups
+> **Indicator:** Consistent connection intervals suggest automated C2 beaconing.
 
----
+#### Data Exfiltration Volume
 
-## Defensive Capabilities
-
-### What You Can Detect With These Queries
-
-✅ **Reconnaissance:** Vulnerability scanning, enumeration attempts  
-✅ **Exploitation:** SQL injection, path traversal, file upload attacks  
-✅ **Persistence:** Webshell creation and command execution  
-✅ **Command & Control:** Outbound C2 communication patterns  
-✅ **Exfiltration:** Data theft and backup downloads  
-
-### What These Queries Do NOT Detect
-
-❌ **Encryption-breaking techniques** (queries work only with unencrypted logs)  
-❌ **Highly obfuscated attacks** (may bypass user-agent filters)  
-❌ **Zero-day exploits** (signatures only detect known tools)  
-❌ **Internal lateral movement** (requires endpoint detection and response tools)  
-❌ **Memory-only malware** (requires EDR solutions)
-
----
-
-## Best Practices
-
-### Before Running Queries:
-
-1. **Verify Index Availability**
-   ```spl
-   | rest /services/data/indexes
-   ```
-   Ensure `web_traffic` and `firewall_logs` indices exist and contain data.
-
-2. **Adjust Time Windows**
-   - Use Splunk's time picker (right side of search bar)
-   - Start broad (24-48 hours), then narrow down to peak activity
-
-3. **Validate Source Types**
-   ```spl
-   index=main | stats count by sourcetype
-   ```
-   Confirm your environment uses expected source type names.
-
-### During Investigation:
-
-4. **Protect Sensitive Output**
-   - Export results to CSV and store on encrypted drives
-   - Never share unredacted query results with vendors or external parties
-   - Anonymize IP addresses before incident reports
-
-5. **Document Your Findings**
-   - Screenshot each query result
-   - Note timestamps and attack progression
-   - Save queries in a text file for your incident report
-
-6. **Chain Multiple Queries**
-   - Don't rely on single query result
-   - Cross-reference findings across web logs AND firewall logs
-   - Look for temporal correlation (events happening in sequence)
-
-### After Investigation:
-
-7. **Create Alerts**
-   - Save high-value queries as saved searches
-   - Convert to alerts that trigger on detection threshold
-   - Build dashboard showing real-time attack status
-
-8. **Share Knowledge**
-   - Brief your team on attack patterns discovered
-   - Add lessons learned to your playbooks
-   - Update firewall/WAF rules based on attacker IP/patterns
-
----
-
-## Troubleshooting
-
-### Query Returns No Results
-
-**Possible Causes:**
-- Wrong index name (check what indices exist: `| rest /services/data/indexes`)
-- Wrong sourcetype (verify with: `index=main | stats count by sourcetype`)
-- Time window too narrow (expand to 7 days or more)
-- Field names don't match your environment (check field names: `index=main | fields *`)
-
-**Solution:**
 ```spl
-index=main | head 10
-```
-Run a simple query to verify data is being ingested.
-
----
-
-### Query Returns Too Many Results (Timeout)
-
-**Causes:**
-- Time window too broad
-- No IP filter applied (searching all traffic instead of suspect IP)
-
-**Solution:** Add explicit filters:
-```spl
-sourcetype=web_traffic client_ip="10.10.1.5" 
-earliest=-24h latest=now
+index=main sourcetype=firewall_logs src_ip="<COMPROMISED_IP>" action="ALLOWED"
+| stats sum(bytes_out) as total_bytes by dest_ip
+| eval total_mb=round(total_bytes/1048576, 2)
+| eval total_gb=round(total_bytes/1073741824, 2)
+| sort -total_bytes
+| head 10
 ```
 
+**Impact Assessment:**
+
+| Volume | Severity | Likely Content |
+|:-------|:---------|:---------------|
+| < 100 MB | Low | Reconnaissance data, credentials |
+| 100 MB - 1 GB | Medium | Database subsets, documents |
+| 1 - 10 GB | High | Full database dumps |
+| > 10 GB | Critical | Complete data exfiltration |
+
+#### DNS Exfiltration Detection
+
+```spl
+index=main sourcetype=dns_logs
+| where len(query) > 50
+| rex field=query "(?<subdomain>[^.]+)\."
+| where len(subdomain) > 30
+| stats count by src_ip, query
+| sort -count
+```
+
+> **Indicator:** Unusually long DNS subdomains may indicate data exfiltration via DNS tunneling.
+
 ---
 
-### Field Names Don't Match
+## 🔔 Automated Alerts
 
-Different Splunk environments use different field names:
-- `client_ip` vs. `src_ip` vs. `clientip`
-- `user_agent` vs. `useragent` vs. `user-agent`
+### Ready-to-Use Alert Configurations
 
-**Solution:** Extract field names from raw data:
+#### Alert 1: SQL Injection Tool Detection
+
 ```spl
-index=main 
+index=main sourcetype=web_traffic
+| where match(user_agent, "(?i)(sqlmap|havij|pangolin|sqlninja)")
+| stats count by client_ip, user_agent
+| where count > 5
+```
+
+| Setting | Value |
+|:--------|:------|
+| **Trigger** | Number of results > 0 |
+| **Schedule** | Every 5 minutes |
+| **Severity** | High |
+| **Action** | Email SOC, Create ticket |
+
+#### Alert 2: Brute Force Login Attempts
+
+```spl
+index=main sourcetype=web_traffic
+| where match(path, "(?i)(login|signin|auth|session)")
+| where status IN (401, 403)
+| stats count by client_ip
+| where count > 50
+```
+
+| Setting | Value |
+|:--------|:------|
+| **Trigger** | Number of results > 0 |
+| **Schedule** | Every 5 minutes |
+| **Severity** | Medium |
+| **Action** | Email security team |
+
+#### Alert 3: Webshell Activity
+
+```spl
+index=main sourcetype=web_traffic method=POST
+| where match(path, "(?i)(shell|cmd|backdoor|c99|r57)")
+  OR match(path, "\?(cmd|exec|c|id)=")
+| where status=200
+```
+
+| Setting | Value |
+|:--------|:------|
+| **Trigger** | Number of results > 0 |
+| **Schedule** | Every 1 minute |
+| **Severity** | Critical |
+| **Action** | Page on-call, Block IP |
+
+#### Alert 4: Large Data Transfer
+
+```spl
+index=main sourcetype=firewall_logs action="ALLOWED"
+| stats sum(bytes_out) as total by src_ip
+| where total > 1073741824
+| eval gb=round(total/1073741824, 2)
+```
+
+| Setting | Value |
+|:--------|:------|
+| **Trigger** | Number of results > 0 |
+| **Schedule** | Every 15 minutes |
+| **Severity** | High |
+| **Action** | Email SOC, investigate |
+
+#### Alert 5: Config File Access
+
+```spl
+index=main sourcetype=web_traffic
+| where match(path, "(?i)(\.env|\.git|wp-config|\.aws|\.ssh)")
+| where status=200
+```
+
+| Setting | Value |
+|:--------|:------|
+| **Trigger** | Number of results > 0 |
+| **Schedule** | Every 5 minutes |
+| **Severity** | Critical |
+| **Action** | Immediate investigation |
+
+---
+
+## ⚡ False Positives Guide
+
+### Common False Positive Scenarios
+
+| Detection | False Positive Source | How to Exclude |
+|:----------|:----------------------|:---------------|
+| **Non-browser UA** | API integrations, monitoring tools | Whitelist known service accounts |
+| **SQL injection patterns** | Search queries with quotes | Exclude known safe parameters |
+| **Path traversal** | Legitimate relative URLs | Exclude internal application paths |
+| **High request volume** | CDN/Load balancer health checks | Filter by known infrastructure IPs |
+| **Brute force** | Password managers, SSO systems | Whitelist trusted auth sources |
+| **Large transfers** | Backups, log rotation | Exclude scheduled maintenance windows |
+
+### Exclusion Query Patterns
+
+#### Exclude Internal IPs
+
+```spl
+| where NOT match(client_ip, "^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)")
+```
+
+#### Exclude Known Good User-Agents
+
+```spl
+| where NOT match(user_agent, "(?i)(Pingdom|UptimeRobot|StatusCake|Datadog|NewRelic|Splunk)")
+```
+
+#### Exclude Monitoring Endpoints
+
+```spl
+| where NOT match(path, "(?i)(/health|/status|/ping|/metrics|/ready|/live)")
+```
+
+---
+
+## ⚙️ Environment Setup
+
+### Pre-Investigation Checklist
+
+```spl
+| Rest Query - Verify Indices
+| rest /services/data/indexes 
+| table title, currentDBSizeMB, totalEventCount
+| sort -totalEventCount
+```
+
+```spl
+| Discover Available Sourcetypes
+index=* 
+| stats count by sourcetype 
+| sort -count
+```
+
+```spl
+| Identify Field Names
+index=main sourcetype=web_traffic 
 | head 1 
-| fields *
+| fieldsummary
+| table field, distinct_count, values
 ```
 
-Then adapt query field names to match your data.
+### Recommended Index Configuration
+
+| Index | Sourcetype | Retention | Purpose |
+|:------|:-----------|:----------|:--------|
+| `web` | `web_traffic` | 90 days | HTTP/HTTPS access logs |
+| `firewall` | `firewall_logs` | 90 days | Network traffic logs |
+| `dns` | `dns_logs` | 30 days | DNS query logs |
+| `auth` | `auth_logs` | 365 days | Authentication events |
+| `waf` | `waf_logs` | 90 days | Web Application Firewall logs |
 
 ---
 
-## Contributing
+## 🔧 Troubleshooting
 
-Found an improved query? Discovered an evasion technique? Have a better detection method?
+### Issue: Query Returns No Results
 
-**Guidelines for Contributions:**
+**Diagnostic Steps:**
 
-- Submit via GitHub Pull Request
-- Include clear description: "What does this query detect?"
-- Provide sample IOCs or attack scenario
-- Explain any assumptions about log structure
-- Test the query before submitting
+```spl
+| Verify data exists
+index=* earliest=-24h | stats count by index, sourcetype
+
+| Check time range
+index=main sourcetype=web_traffic
+| stats earliest(_time) as first, latest(_time) as last
+| eval first=strftime(first, "%Y-%m-%d %H:%M"), last=strftime(last, "%Y-%m-%d %H:%M")
+
+| Verify field names exist
+index=main sourcetype=web_traffic | fieldsummary | search field=client_ip OR field=user_agent
+```
+
+### Issue: Query Times Out
+
+**Solutions:**
+
+1. **Narrow time range:** Use `earliest=-24h latest=now`
+2. **Add specific filters:** Include `client_ip="x.x.x.x"` early in query
+3. **Use tstats for indexed fields:**
+   ```spl
+   | tstats count WHERE index=main sourcetype=web_traffic BY client_ip
+   ```
+4. **Limit results:** Add `| head 1000` during testing
+
+### Issue: Field Names Don't Match
+
+**Field Discovery Query:**
+
+```spl
+index=main sourcetype=web_traffic
+| head 10
+| transpose
+| rename column as field, "row 1" as sample_value
+```
+
+### Issue: Regex Not Matching
+
+**Test Regex:**
+
+```spl
+| makeresults 
+| eval test_string="your test string here"
+| where match(test_string, "your_regex_pattern")
+```
 
 ---
 
-## Related Resources
+## 📖 Resources
 
-### Splunk Documentation
+### Official Documentation
+
 - [Splunk Search Reference](https://docs.splunk.com/Documentation/Splunk/latest/SearchReference)
-- [Common Information Model (CIM)](https://docs.splunk.com/Documentation/CIM/latest/User/Overview)
+- [Splunk Common Information Model](https://docs.splunk.com/Documentation/CIM/latest/User/Overview)
+- [Splunk Security Essentials](https://splunkbase.splunk.com/app/3435/)
 
-### Threat Intelligence & Attack Frameworks
+### Threat Intelligence
+
 - [MITRE ATT&CK Framework](https://attack.mitre.org/)
-- [Cyber Kill Chain](https://www.lockheedmartin.com/en-us/capabilities/cyber/cyber-kill-chain.html)
+- [Cyber Kill Chain - Lockheed Martin](https://www.lockheedmartin.com/en-us/capabilities/cyber/cyber-kill-chain.html)
 - [NIST Cybersecurity Framework](https://www.nist.gov/cyberframework)
 
-### Relevant OWASP Top 10 (2024)
-- A03:2021 – Injection (SQL injection, command injection)
-- A01:2021 – Broken Access Control (path traversal)
-- A05:2021 – Security Misconfiguration (exposed configuration files)
+### OWASP References
+
+- [OWASP Top 10 (2021)](https://owasp.org/Top10/)
+- [OWASP Testing Guide](https://owasp.org/www-project-web-security-testing-guide/)
+- [OWASP Cheat Sheet Series](https://cheatsheetseries.owasp.org/)
+
+### Detection Engineering
+
+- [Sigma Rules](https://github.com/SigmaHQ/sigma)
+- [Splunk Security Content](https://github.com/splunk/security_content)
+- [SANS Incident Handler's Handbook](https://www.sans.org/white-papers/33901/)
 
 ---
 
-## License
+## 🤝 Contributing
+
+**Want to improve this playbook?**
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/new-detection`)
+3. Add your query with:
+   - Clear description of what it detects
+   - MITRE ATT&CK mapping if applicable
+   - Sample output or expected results
+   - False positive considerations
+4. Submit a Pull Request
+
+**Contribution Guidelines:**
+- Test queries before submitting
+- Include field name alternatives for portability
+- Document any environment-specific requirements
+- Redact all real IP addresses and sensitive data
+
+---
+
+## 📄 License
 
 This project is licensed under the **MIT License**.
 
-You are free to:
-- ✅ Use for commercial and private purposes
-- ✅ Modify and adapt for your environment
-- ✅ Distribute and share
-- ✅ Include in your own projects
 
-**Condition:**
-- ✔️ Include original license and copyright notice
+<p align="center">
+  <strong>⭐ Star this repository if you found it useful!</strong>
+</p>
 
-See LICENSE file for full details.
+<p align="center">
+  <em>Last Updated: December 2025 </em>
+</p>
 
----
-
-
-## Acknowledgments
-
-This playbook synthesizes techniques from:
-- SANS Security Institute incident response training
-- NIST Cybersecurity Framework guidance
-- Community threat intelligence sources
-- Real-world incident response experiences
-
----
-
-**⭐ If you found this playbook useful, please consider giving it a star!**
-
----
-
-*Last Review Date: December 6, 2025*  
-*Status: Production Ready for Educational Use*  
-*Compliance: Fully redacted and anonymized*
-
+<p align="center">
+  <a href="#-splunk-security-investigation-playbook">Back to Top ↑</a>
+</p>
